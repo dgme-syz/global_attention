@@ -144,7 +144,11 @@ def load_model(
             model = load_unsloth_pretrained_model(config, model_args)
 
     if model_args.use_global_attn:
-        model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path)
+        model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(
+            model_args.model_name_or_path,
+            device_map="auto",
+            torch_dtype="auto"
+        )
         for name, param in model.named_parameters():
             if "global" in name:
                 param.requires_grad = True

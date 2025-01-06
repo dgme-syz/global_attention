@@ -143,6 +143,14 @@ def load_model(
         elif is_trainable:
             model = load_unsloth_pretrained_model(config, model_args)
 
+    if model_args.use_global_attn:
+        model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path)
+        for name, param in model.named_parameters():
+            if "global" in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+    
     if model is None and not lazy_load:
         init_kwargs["config"] = config
         init_kwargs["pretrained_model_name_or_path"] = model_args.model_name_or_path
@@ -167,14 +175,8 @@ def load_model(
         patch_model(model, tokenizer, model_args, is_trainable, add_valuehead)
         register_autoclass(config, model, tokenizer)
 
-    if model_args.use_global_attn:
-        model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path)
-        for name, param in model.named_parameters():
-            if "global" in name:
-                param.requires_grad = True
-            else:
-                param.requires_grad = False
-    else:
+    
+    if not model_args.use_global_attn:
         model = init_adapter(config, model, model_args, finetuning_args, is_trainable)
 
     if add_valuehead:

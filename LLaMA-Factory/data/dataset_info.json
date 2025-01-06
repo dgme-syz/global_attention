@@ -1,4 +1,12 @@
 {
+  "gsm8k": {
+    "hf_hub_url": "openai/gsm8k",
+    "subset": "main",
+    "columns": {
+        "prompt": "question",
+        "response": "answer"
+    }
+  },
   "identity": {
     "file_name": "identity.json"
   },

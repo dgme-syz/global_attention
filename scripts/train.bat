@@ -19,11 +19,11 @@ llamafactory-cli train ^
     --overwrite_cache ^
     --overwrite_output_dir ^
     --cutoff_len 1024 ^
-    --per_device_train_batch_size 8 ^
-    --per_device_eval_batch_size 8 ^
+    --per_device_train_batch_size 4 ^
+    --per_device_eval_batch_size 4 ^
     --gradient_accumulation_steps 8 ^
     --lr_scheduler_type cosine ^
-    --logging_steps 10 ^
+    --logging_steps 5 ^
     --warmup_steps 20 ^
     --save_steps 200 ^
     --eval_steps 100 ^

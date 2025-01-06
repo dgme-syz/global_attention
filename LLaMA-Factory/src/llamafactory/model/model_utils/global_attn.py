@@ -95,7 +95,7 @@ def get_ga_model(
             super().__init__(config, **kwargs)
             self.global_attn = CustomAttention(config=config, layer_idx=0) # train
             self.global_mlp = MLP(config)
-            self.global_input_layernorm =RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            self.global_input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
             self.global_post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
             
 
@@ -169,7 +169,9 @@ def get_ga_model(
             hidden_states = self.global_mlp(hidden_states)
             hidden_states = residual + hidden_states
             
+            # print(torch.max(hidden_states))
             hidden_states = torch.mean(hidden_states, dim=1) # [batch_size, seq_len, hidden_size]
+            # print(torch.max(hidden_states))
             outputs.last_hidden_state = outputs.last_hidden_state + hidden_states
             outputs.last_hidden_state = self.norm(outputs.last_hidden_state)
             ##### global attention

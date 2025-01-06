@@ -1,8 +1,8 @@
 #!/bin/bash
 
-MODEL_ID="Qwen/Qwen2.5-3B-Instruct"
+MODEL_ID="/root/autodl-tmp/Qwen2.5/text-generation-webui/models/Qwen2.5-7B-Instruct"
 DATASET_ID="mathinstruct"
-OUTPUT_DIR="./saves/sft"
+OUTPUT_DIR="/root/autodl-tmp/saves/sft"
 TEMPLATE="qwen"
 FINETUNING="full"
 
@@ -35,4 +35,4 @@ llamafactory-cli train \
     --plot_loss \
     --max_samples 10000 \
     --save_total_limit 2 \
-    --bf16
+    

@@ -15,6 +15,7 @@
 from typing import TYPE_CHECKING, Any, Dict, Optional, TypedDict
 
 import torch
+from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer
 from trl import AutoModelForCausalLMWithValueHead
 
@@ -144,14 +145,16 @@ def load_model(
             model = load_unsloth_pretrained_model(config, model_args)
 
     if model_args.use_global_attn:
-        model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(
-            model_args.model_name_or_path,
-            device_map="auto",
-            torch_dtype="auto"
+        model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path, 
+            device_map="auto", torch_dtype="auto"
         )
         for name, param in model.named_parameters():
             if "global" in name:
                 param.requires_grad = True
+                if param.dim() >= 2:
+                    nn.init.xavier_normal_(param.data)
+                else:
+                    nn.init.zeros_(param.data)  # 或者 nn.init.constant_(param.data, 0)
             else:
                 param.requires_grad = False
     

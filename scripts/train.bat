@@ -1,7 +1,7 @@
 @echo off
 
 set MODEL_ID="E:\pretrained_models\Qwen\Qwen2___5-0___5B-Instruct"
-set DATASET_ID="alpaca_en_demo"
+set DATASET_ID="mathinstruct"
 set OUTPUT_DIR="./saves/sft"
 set TEMPLATE="qwen"
 set FINETUNING="full"
@@ -33,4 +33,5 @@ llamafactory-cli train ^
     --num_train_epochs 5.0 ^
     --val_size 0.1 ^
     --plot_loss ^
+    --max_samples 1000 ^
     --save_total_limit 10 ^ 

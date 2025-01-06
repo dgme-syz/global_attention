@@ -170,7 +170,7 @@ def load_model(
     if model_args.use_global_attn:
         model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path)
         for name, param in model.named_parameters():
-            if "global_attn" in name:
+            if "global" in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False

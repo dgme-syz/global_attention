@@ -1,4 +1,5 @@
 from transformers import MODEL_MAPPING, AutoConfig, MODEL_FOR_CAUSAL_LM_MAPPING
+from transformers.activations import ACT2FN
 import torch
 from torch import nn
 from typing import List, Optional, Tuple, Union
@@ -45,6 +46,37 @@ class CustomAttention(nn.Module):
 
         return attn_output, attn_weights
 
+class RMSNorm(nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        RMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+
+class MLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = config.intermediate_size
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, hidden_state):
+        return self.down_proj(self.act_fn(self.gate_proj(hidden_state)) * self.up_proj(hidden_state))
 
 def get_ga_model(
     pretrained_model_name_or_path: str,
@@ -62,6 +94,10 @@ def get_ga_model(
         def __init__(self, config, **kwargs):
             super().__init__(config, **kwargs)
             self.global_attn = CustomAttention(config=config, layer_idx=0) # train
+            self.global_mlp = MLP(config)
+            self.global_input_layernorm =RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            self.global_post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+            
 
         def forward(
             self,
@@ -115,17 +151,27 @@ def get_ga_model(
 
             all_layer_outputs = torch.stack(all_layer_outputs)
             all_layer_outputs[:-1] = self.norm(all_layer_outputs[:-1]) # use the same setting as the original model
-            rg = torch.arange(batch_size, device=all_layer_outputs.device)
+            rg = list(range(batch_size))
             key_hidden_states = all_layer_outputs[:, rg, sequence_lengths, :] # [num_layers, batch_size, hidden_size]
             key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
             all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
+            residual = all_layer_outputs
+            all_layer_outputs = self.global_input_layernorm(all_layer_outputs)
             attn_output, _ = self.global_attn(
                 hidden_states=key_hidden_states,
                 value_states=all_layer_outputs,
             )
             assert len(attn_output.shape) == 4
-            attn_output = torch.mean(attn_output, dim=1) # [batch_size, seq_len, hidden_size]
-            outputs.last_hidden_state = outputs.last_hidden_state + attn_output
+            attn_output = attn_output + residual
+            residual = attn_output
+            
+            hidden_states = self.global_post_attention_layernorm(attn_output)
+            hidden_states = self.global_mlp(hidden_states)
+            hidden_states = residual + hidden_states
+            
+            hidden_states = torch.mean(hidden_states, dim=1) # [batch_size, seq_len, hidden_size]
+            outputs.last_hidden_state = outputs.last_hidden_state + hidden_states
+            outputs.last_hidden_state = self.norm(outputs.last_hidden_state)
             ##### global attention
             
             return outputs

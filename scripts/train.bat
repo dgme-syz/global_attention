@@ -18,9 +18,9 @@ llamafactory-cli train ^
     --output_dir %OUTPUT_DIR% ^
     --overwrite_cache ^
     --overwrite_output_dir ^
-    --cutoff_len 1024 ^
-    --per_device_train_batch_size 4 ^
-    --per_device_eval_batch_size 4 ^
+    --cutoff_len 768 ^
+    --per_device_train_batch_size 2 ^
+    --per_device_eval_batch_size 2 ^
     --gradient_accumulation_steps 8 ^
     --lr_scheduler_type cosine ^
     --logging_steps 5 ^

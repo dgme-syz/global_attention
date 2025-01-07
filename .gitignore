@@ -23,3 +23,4 @@ TestResults.xml
 /wandb/*
 /saves/*
 tmp.py
+*.pyc

@@ -46,30 +46,11 @@ class CustomAttention(nn.Module):
 
         return attn_output, attn_weights
 
-class RMSNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
-        """
-        RMSNorm is equivalent to T5LayerNorm
-        """
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
-
-    def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
-
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
+        self.intermediate_size = 2 * config.hidden_size
         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
@@ -95,10 +76,7 @@ def get_ga_model(
             super().__init__(config, **kwargs)
             self.global_attn = CustomAttention(config=config, layer_idx=0) # train
             self.global_mlp = MLP(config)
-            self.global_input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            self.global_post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
             
-
         def forward(
             self,
             input_ids: torch.LongTensor = None,
@@ -130,33 +108,15 @@ def get_ga_model(
                 cache_position=cache_position,
             )
             
-            all_layer_outputs = outputs.hidden_states[1:] # pop only embedding layer
-            ##### like cls model, we select the last token (excpet pad) for query, key
-            if input_ids is not None:
-                batch_size = input_ids.shape[0]
-            else:
-                batch_size = inputs_embeds.shape[0]
-            if self.config.pad_token_id is None and batch_size != 1:
-                raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
-            if self.config.pad_token_id is None:
-                sequence_lengths = -1
-            else:
-                if input_ids is not None:
-                    # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
-                    sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
-                    sequence_lengths = sequence_lengths % input_ids.shape[-1]
-                    sequence_lengths = sequence_lengths.to(outputs[0].device)
-                else:
-                    sequence_lengths = -1
+            torch.cuda.empty_cache()
+            all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
 
             all_layer_outputs = torch.stack(all_layer_outputs)
-            all_layer_outputs[:-1] = self.norm(all_layer_outputs[:-1]) # use the same setting as the original model
-            rg = list(range(batch_size))
-            key_hidden_states = all_layer_outputs[:, rg, sequence_lengths, :] # [num_layers, batch_size, hidden_size]
+            key_hidden_states = torch.mean(all_layer_outputs, dim=-2)
             key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
             all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
             residual = all_layer_outputs
-            all_layer_outputs = self.global_input_layernorm(all_layer_outputs)
+            
             attn_output, _ = self.global_attn(
                 hidden_states=key_hidden_states,
                 value_states=all_layer_outputs,
@@ -164,25 +124,21 @@ def get_ga_model(
             assert len(attn_output.shape) == 4
             attn_output = attn_output + residual
             residual = attn_output
+            attn_output = self.global_mlp(attn_output)
             
-            hidden_states = self.global_post_attention_layernorm(attn_output)
-            hidden_states = self.global_mlp(hidden_states)
-            hidden_states = residual + hidden_states
-            
-            # print(torch.max(hidden_states))
-            hidden_states = torch.mean(hidden_states, dim=1) # [batch_size, seq_len, hidden_size]
-            # print(torch.max(hidden_states))
-            outputs.last_hidden_state = outputs.last_hidden_state + hidden_states
-            outputs.last_hidden_state = self.norm(outputs.last_hidden_state)
-            ##### global attention
+            attn_output = attn_output + residual
+            hidden_states = attn_output.transpose(0, 1) # [num_layers, batch_size, seq_len, hidden_size]
+            hidden_states = torch.mean(hidden_states, dim=0)
+            outputs.last_hidden_state = (outputs.last_hidden_state + hidden_states) / 2
             
             return outputs
-            
+# 85 0.5543
     
     class GAForCausalLM(U):
         def __init__(self, config, **kwargs):
             super().__init__(config, **kwargs)
             self.model = GAModel(config, **kwargs)
+            torch.cuda.empty_cache()
             
     
     return GAModel, GAForCausalLM

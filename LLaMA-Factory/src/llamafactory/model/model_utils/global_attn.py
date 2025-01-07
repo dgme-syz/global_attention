@@ -46,25 +46,6 @@ class CustomAttention(nn.Module):
 
         return attn_output, attn_weights
 
-class RMSNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
-        """
-        RMSNorm is equivalent to T5LayerNorm
-        """
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
-
-    def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
-
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -93,14 +74,8 @@ def get_ga_model(
     class GAModel(T):
         def __init__(self, config, **kwargs):
             super().__init__(config, **kwargs)
-            # self.global_attn = CustomAttention(config=config, layer_idx=0) # train
-            # self.global_mlp = MLP(config)
-            # self.global_input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            # self.global_post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-            # self.global_layer_weights = nn.Parameter(torch.zeros(config.num_hidden_layers - 1))
-            self.global_fn = nn.ModuleList(
-                nn.Linear(config.hidden_size, config.hidden_size) for _ in range(config.num_hidden_layers - 1)
-            )
+            self.global_attn = CustomAttention(config=config, layer_idx=0) # train
+            self.global_mlp = MLP(config)
             
         def forward(
             self,
@@ -134,68 +109,30 @@ def get_ga_model(
             )
             
             torch.cuda.empty_cache()
-            output_hidden_states = outputs.hidden_states[1:-1]
-            x = ()
-            for i, layer in enumerate(output_hidden_states):
-                x += (self.global_fn[i](layer),)
-            x = torch.mean(torch.stack(x), dim=0)
-            outputs.last_hidden_state = (outputs.last_hidden_state + x) / 2
-            # print(outputs[0].max())
-            # all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
-            # ##### like cls model, we select the last token (excpet pad) for query, key
-            # if input_ids is not None:
-            #     batch_size = input_ids.shape[0]
-            # else:
-            #     batch_size = inputs_embeds.shape[0]
-            # if self.config.pad_token_id is None and batch_size != 1:
-            #     raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
-            # if self.config.pad_token_id is None:
-            #     sequence_lengths = -1
-            # else:
-            #     if input_ids is not None:
-            #         # if no pad token found, use modulo instead of reverse indexing for ONNX compatibility
-            #         sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
-            #         sequence_lengths = sequence_lengths % input_ids.shape[-1]
-            #         sequence_lengths = sequence_lengths.to(outputs[0].device)
-            #     else:
-            #         sequence_lengths = -1
+            all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
 
-            # all_layer_outputs = torch.stack(all_layer_outputs)
-            # rg = list(range(batch_size))
-            # key_hidden_states = all_layer_outputs[:, rg, sequence_lengths, :] # [num_layers, batch_size, hidden_size]
-            # with torch.no_grad():
-            #     print(key_hidden_states.max())
-            # key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
-            # all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
-            # residual = all_layer_outputs
-            # all_layer_outputs = self.global_input_layernorm(all_layer_outputs)
-            # attn_output, _ = self.global_attn(
-            #     hidden_states=key_hidden_states,
-            #     value_states=all_layer_outputs,
-            # )
-            # assert len(attn_output.shape) == 4
-            # attn_output = attn_output + residual
-            # residual = attn_output
+            all_layer_outputs = torch.stack(all_layer_outputs)
+            key_hidden_states = torch.mean(all_layer_outputs, dim=-2)
+            key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
+            all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
+            residual = all_layer_outputs
             
-            # hidden_states = self.global_post_attention_layernorm(attn_output)
-            # hidden_states = self.global_mlp(hidden_states)
-            # hidden_states = residual + hidden_states
+            attn_output, _ = self.global_attn(
+                hidden_states=key_hidden_states,
+                value_states=all_layer_outputs,
+            )
+            assert len(attn_output.shape) == 4
+            attn_output = attn_output + residual
+            residual = attn_output
+            attn_output = self.global_mlp(attn_output)
             
-            # # print(torch.max(hidden_states))
-            # hidden_states = hidden_states.transpose(0, 1) # [num_layers, batch_size, seq_len, hidden_size]
-            # # hidden_states = torch.mean(hidden_states, dim=1) # [batch_size, seq_len, hidden_size]
-            # # num_layers_dim weight and sum
-            # hidden_states = torch.mean(hidden_states, dim=0)
-            # # print(torch.max(hidden_states))
-            # with torch.no_grad():
-            #     print(outputs.last_hidden_state.max())
-            # outputs.last_hidden_state = (outputs.last_hidden_state + hidden_states) / 2
-            # with torch.no_grad():
-            #     print(outputs.last_hidden_state.max())
-            ##### global attention
+            attn_output = attn_output + residual
+            hidden_states = attn_output.transpose(0, 1) # [num_layers, batch_size, seq_len, hidden_size]
+            hidden_states = torch.mean(hidden_states, dim=0)
+            outputs.last_hidden_state = (outputs.last_hidden_state + hidden_states) / 2
             
             return outputs
-            
+# 85 0.5543
     
     class GAForCausalLM(U):
         def __init__(self, config, **kwargs):

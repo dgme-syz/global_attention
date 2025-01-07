@@ -151,7 +151,7 @@ def load_model(
         for name, param in model.named_parameters():
             if "global" in name:
                 param.requires_grad = True
-                if param.dim() >= 2:
+                if param.dim() >= 2 and "norm" not in name:
                     nn.init.xavier_normal_(param.data)
             else:
                 param.requires_grad = False

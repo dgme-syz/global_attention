@@ -1,9 +1,9 @@
 @echo off
 
-set MODEL_ID="E:\pretrained_models\LLM-Research\Llama-3___2-1B-Instruct"
+set MODEL_ID="E:\pretrained_models\AI-ModelScope\TinyLlama-1___1B-Chat-v1___0"
 set DATASET_ID="mathinstruct"
 set OUTPUT_DIR="./saves/llama"
-set TEMPLATE="llama3"
+set TEMPLATE="tinyllama"
 set FINETUNING="ga"
 
 llamafactory-cli train ^

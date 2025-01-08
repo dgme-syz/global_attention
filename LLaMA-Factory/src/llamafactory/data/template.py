@@ -1290,3 +1290,12 @@ _register_template(
     format_user=StringFormatter(slots=["<human>:{{content}}\n<bot>:"]),
     format_separator=EmptyFormatter(slots=["\n"]),
 )
+
+_register_template(
+    name="tinyllama",
+    format_user=StringFormatter(slots=["<|user|>\n{{content}}</s>\n<|assistant|>"]),
+    format_system=StringFormatter(slots=["<|system|>\n{{content}}</s>\n"]),
+    format_separator=EmptyFormatter(slots=["\n"]),
+    stop_words=["</s>"],
+    replace_eos=True,
+)

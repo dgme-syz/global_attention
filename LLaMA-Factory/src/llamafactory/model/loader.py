@@ -181,8 +181,7 @@ def load_model(
         register_autoclass(config, model, tokenizer)
 
     
-    if not model_args.use_global_attn:
-        model = init_adapter(config, model, model_args, finetuning_args, is_trainable)
+    model = init_adapter(config, model, model_args, finetuning_args, is_trainable)
 
     if add_valuehead:
         model = AutoModelForCausalLMWithValueHead.from_pretrained(model)

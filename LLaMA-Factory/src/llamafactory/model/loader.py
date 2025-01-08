@@ -146,7 +146,7 @@ def load_model(
 
     if model_args.use_global_attn:
         model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path, 
-            device_map="auto", torch_dtype=torch.float32
+            device_map="auto", torch_dtype="auto"
         )
         for name, param in model.named_parameters():
             if "global" in name:

@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from typing import List, Optional, Tuple, Union
 from transformers.modeling_outputs import BaseModelOutputWithPast
+import torch.nn.functional as F
 
 class CustomAttention(nn.Module):
     """
@@ -28,29 +29,21 @@ class CustomAttention(nn.Module):
         hidden_states: torch.Tensor, # [batch_size, num_layers, hidden_size]
         value_states: torch.Tensor, # [batch_size, num_layers, seq_len, hidden_size]
         output_attentions: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    ) -> torch.Tensor:
         bsz, q_len, _ = hidden_states.size()
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
-
-        attn_weights = torch.matmul(query_states, key_states.transpose(1, 2))
-
-        # upcast attention to fp32
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-        attn_output = torch.matmul(attn_weights, value_states.view(bsz, q_len, -1))
+        attn_output = F.scaled_dot_product_attention(
+            query=query_states, key=key_states, value=value_states.view(bsz, q_len, -1), dropout_p=self.attention_dropout
+        )
         attn_output = attn_output.view(bsz, q_len, -1, _)
-
-        if not output_attentions:
-            attn_weights = None
-
-        return attn_output, attn_weights
+        return attn_output
 
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.intermediate_size = 2 * config.hidden_size
+        self.intermediate_size = config.intermediate_size
         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
@@ -112,14 +105,17 @@ def get_ga_model(
             all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
 
             all_layer_outputs = torch.stack(all_layer_outputs)
-            key_hidden_states = torch.mean(all_layer_outputs, dim=-2)
+            key_hidden_states = torch.mean(all_layer_outputs, dim=-2, dtype=torch.float32).to(all_layer_outputs.dtype)
             key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
             all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
             residual = all_layer_outputs
             
-            attn_output, _ = self.global_attn(
+            attn_output = self.global_attn(
                 hidden_states=key_hidden_states,
                 value_states=all_layer_outputs,
+            )
+            print(
+                self.global_attn.q_proj.weight.grad.max() if self.global_attn.q_proj.weight.grad is not None else None,
             )
             assert len(attn_output.shape) == 4
             attn_output = attn_output + residual
@@ -128,9 +124,8 @@ def get_ga_model(
             
             attn_output = attn_output + residual
             hidden_states = attn_output.transpose(0, 1) # [num_layers, batch_size, seq_len, hidden_size]
-            hidden_states = torch.mean(hidden_states, dim=0)
+            hidden_states = torch.mean(hidden_states, dim=0, dtype=torch.float32).to(hidden_states.dtype)
             outputs.last_hidden_state = (outputs.last_hidden_state + hidden_states) / 2
-            
             return outputs
 # 85 0.5543
     

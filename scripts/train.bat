@@ -1,9 +1,9 @@
 @echo off
 
-set MODEL_ID="E:\pretrained_models\Qwen\Qwen2___5-0___5B-Instruct"
+set MODEL_ID="E:\pretrained_models\LLM-Research\Llama-3___2-1B-Instruct"
 set DATASET_ID="mathinstruct"
-set OUTPUT_DIR="./saves/qwen05b"
-set TEMPLATE="qwen"
+set OUTPUT_DIR="./saves/llama"
+set TEMPLATE="llama3"
 set FINETUNING="ga"
 
 llamafactory-cli train ^

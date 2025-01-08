@@ -133,22 +133,26 @@ def get_ga_model(config: str):
             )
             
             torch.cuda.empty_cache()
+            # print("&****************************************************************************************************************")
             dtype = outputs.last_hidden_state.dtype
-            all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
 
-            all_layer_outputs = torch.stack(all_layer_outputs)
-            key_hidden_states = torch.mean(all_layer_outputs, dim=-2, dtype=torch.float32).to(dtype)
-            key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
-            all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
-            residual = all_layer_outputs
+            with torch.no_grad():
+                all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
+                all_layer_outputs = torch.stack(all_layer_outputs)
+                key_hidden_states = torch.mean(all_layer_outputs, dim=-2, dtype=torch.float32).to(dtype)
+                key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
+                all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
+                residual = all_layer_outputs
             
             attn_output = self.global_attn[self.name](
                 hidden_states=key_hidden_states,
                 value_states=all_layer_outputs,
             )
-            # print(
-            #     self.global_attn.q_proj.weight.grad.max() if self.global_attn.q_proj.weight.grad is not None else None,
-            # )
+            # a dangerous operation, but it is necessary to save memory
+            del key_hidden_states
+            del all_layer_outputs
+            torch.cuda.empty_cache()
+    
             assert len(attn_output.shape) == 4
             attn_output = attn_output + residual
             residual = attn_output

@@ -81,7 +81,6 @@ class GAPEFTModel(BaseTuner):
         device, dtype = child.device, child.dtype
         del child
         torch.cuda.empty_cache()
-        new_module = new_module.to(device)
         new_module = new_module.to(dtype)
         
     def _mark_only_adapters_as_trainable(self, model) -> None:

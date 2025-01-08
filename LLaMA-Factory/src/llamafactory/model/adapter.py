@@ -281,6 +281,7 @@ def _setup_ga_tuning(
             inference_mode=False,
         )
         model = get_peft_model(model, config, autocast_adapter_dtype=cast_trainable_params_to_fp32)
+        torch.cuda.empty_cache()
     
     if is_trainable and cast_trainable_params_to_fp32:
         for param in filter(lambda p: p.requires_grad, model.parameters()):

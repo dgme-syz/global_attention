@@ -146,12 +146,12 @@ def load_model(
 
     if model_args.use_global_attn:
         model = get_ga_model(model_args.model_name_or_path)[1].from_pretrained(model_args.model_name_or_path, 
-            device_map="auto", torch_dtype="auto"
+            device_map="auto", torch_dtype=torch.float32
         )
         for name, param in model.named_parameters():
             if "global" in name:
                 param.requires_grad = True
-                if param.dim() >= 2 and "norm" not in name:
+                if param.dim() >= 2:
                     nn.init.xavier_normal_(param.data)
             else:
                 param.requires_grad = False

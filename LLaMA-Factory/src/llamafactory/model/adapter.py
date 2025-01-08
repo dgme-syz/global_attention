@@ -16,7 +16,7 @@ import re
 from typing import TYPE_CHECKING
 
 import torch
-from peft import LoraConfig, LoraModel, PeftModel, TaskType, get_peft_model
+from peft import LoraConfig, LoraModel, PeftModel, TaskType, get_peft_model, PeftConfig, GAConfig
 from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_utils import is_fsdp_enabled
 
@@ -255,6 +255,37 @@ def _setup_lora_tuning(
 
     return model
 
+def _setup_ga_tuning(
+    model: "PreTrainedModel",
+    model_args: "ModelArguments",
+    finetuning_args: "FinetuningArguments",
+    is_trainable: bool,
+    cast_trainable_params_to_fp32: bool,
+) -> "PeftModel":
+    if not is_trainable:
+        return
+
+    logger.info_rank0("Fine-tuning method: global attention")
+    if model_args.adapter_name_or_path is not None:
+        logger.info_rank0(
+            model_args.adapter_name_or_path
+        )
+        config = PeftConfig.from_pretrained(model_args.adapter_name_or_path[0])
+        model = PeftModel.from_pretrained(model, adapter_name=model_args.adapter_name_or_path[0], config=config, is_trainable=is_trainable)
+    else:
+        logger.info_rank0(
+            "No adapter name or path provided, using the default global attention tuning."
+        )
+        config = GAConfig(
+            TaskType.CAUSAL_LM,
+            inference_mode=False,
+        )
+        model = get_peft_model(model, config)
+    
+    if is_trainable and cast_trainable_params_to_fp32:
+        for param in filter(lambda p: p.requires_grad, model.parameters()):
+            param.data = param.data.to(torch.float32)
+    return model
 
 def init_adapter(
     config: "PretrainedConfig",
@@ -288,8 +319,9 @@ def init_adapter(
     elif model_args.quantization_bit is None and (is_deepspeed_zero3_enabled() or is_fsdp_enabled()):
         logger.info_rank0("ZeRO3 / FSDP detected, remaining trainable params in float32.")
     else:
-        logger.info_rank0("Upcasting trainable params to float32.")
-        cast_trainable_params_to_fp32 = True
+        if finetuning_args.finetuning_type != "ga":
+            logger.info_rank0("Upcasting trainable params to float32.") 
+            cast_trainable_params_to_fp32 = True
 
     if finetuning_args.finetuning_type == "full":
         _setup_full_tuning(model, finetuning_args, is_trainable, cast_trainable_params_to_fp32)
@@ -299,6 +331,8 @@ def init_adapter(
         model = _setup_lora_tuning(
             config, model, model_args, finetuning_args, is_trainable, cast_trainable_params_to_fp32
         )
+    elif finetuning_args.finetuning_type == "ga":
+        model = _setup_ga_tuning(model, model_args, finetuning_args, is_trainable, cast_trainable_params_to_fp32)
     else:
         raise NotImplementedError(f"Unknown finetuning type: {finetuning_args.finetuning_type}.")
 

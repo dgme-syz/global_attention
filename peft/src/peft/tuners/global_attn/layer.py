@@ -50,7 +50,7 @@ class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
+        self.intermediate_size = 2 * self.hidden_size
         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
@@ -74,23 +74,48 @@ def get_ga_model(config: str):
             base_model,
             adapter_name: str, 
             **kwargs):
-            self.config = base_model.config
-            super().__init__(self.config)
+            super().__init__(base_model.config)
             self.global_attn = nn.ModuleDict({}) # CustomAttention(config=config, layer_idx=0) # train
             self.global_mlp = nn.ModuleDict({}) # MLP(config)
             self.name = adapter_name
             self._disable_adapters = False
             self.merged_adapters = []
             self.update_layer(base_model, adapter_name)
+            self.hooks = []
+            self.layer_out = ()
+            self.ga_config = config
+            self.config = base_model.config
+            self.set_hook()
             torch.cuda.empty_cache()
         
         def __repr__(self) -> str:
             return super().__repr__()
+        
+        def hook(self, module, inp, out):
+            if not hasattr(module, "self_attn"):
+                raise ValueError(f"Error Layer!")
+            self.layer_out += (out[0], )
+        
+        def set_hook(self):
+            num_layers = self.config.num_hidden_layers
+            seq = list(range(1, num_layers - 1))
+            if self.ga_config.target != "all":
+                seq = seq[-int(self.ga_config.target):]
+            
+            for x in seq:
+                self.hooks.append(self.layers[x].register_forward_hook(self.hook))
+            print(
+                f"-----------------Use the following layers for global attention-------------------\n{seq}"
+            )
+                
+        def __del__(self):
+            for hook in self.hooks:
+                hook.remove()
             
         def update_layer(self, base_model, adapter_name):
 
-            self.global_attn[adapter_name] = CustomAttention(self.config)
-            self.global_mlp[adapter_name] = MLP(self.config)
+            self.global_attn[adapter_name] = CustomAttention(base_model.config)
+            self.global_mlp[adapter_name] = MLP(base_model.config)
             
             self.set_adapter(self.active_adapters)
             # initialize the adapter layer
@@ -101,7 +126,7 @@ def get_ga_model(config: str):
                 nn.init.xavier_normal_(self.global_mlp[adapter_name].gate_proj.weight.data)
                 nn.init.xavier_normal_(self.global_mlp[adapter_name].up_proj.weight.data)
                 nn.init.xavier_normal_(self.global_mlp[adapter_name].down_proj.weight.data)
-
+                
         def forward(
             self,
             input_ids: torch.LongTensor = None,
@@ -115,11 +140,7 @@ def get_ga_model(config: str):
             return_dict: Optional[bool] = None,
             cache_position: Optional[torch.LongTensor] = None,
         ) -> Union[Tuple, BaseModelOutputWithPast]:
-            
-            if not output_hidden_states:
-                Warning("output_hidden_states is forced to be True")
-                config.output_hidden_states = output_hidden_states = True
-            
+            output_attentions = False
             outputs = super().forward(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -132,13 +153,9 @@ def get_ga_model(config: str):
                 return_dict=return_dict,
                 cache_position=cache_position,
             )
-            
-            torch.cuda.empty_cache()
-            # print("&****************************************************************************************************************")
             dtype = outputs.last_hidden_state.dtype
-
             with torch.no_grad():
-                all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
+                all_layer_outputs = self.layer_out
                 all_layer_outputs = torch.stack(all_layer_outputs)
                 key_hidden_states = torch.mean(all_layer_outputs, dim=-2).to(dtype)
                 key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
@@ -150,8 +167,7 @@ def get_ga_model(config: str):
                 value_states=all_layer_outputs,
             )
             # a dangerous operation, but it is necessary to save memory
-            del key_hidden_states
-            del all_layer_outputs
+            del key_hidden_states, all_layer_outputs
             torch.cuda.empty_cache()
     
             assert len(attn_output.shape) == 4
@@ -163,6 +179,9 @@ def get_ga_model(config: str):
             hidden_states = attn_output.transpose(0, 1) # [num_layers, batch_size, seq_len, hidden_size]
             hidden_states = torch.mean(hidden_states, dim=0).to(dtype)
             outputs.last_hidden_state = (outputs.last_hidden_state + hidden_states) / 2
+            del self.layer_out
+            self.layer_out = ()
+            torch.cuda.empty_cache()
             return outputs
 
     

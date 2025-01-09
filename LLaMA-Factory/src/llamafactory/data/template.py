@@ -1299,3 +1299,12 @@ _register_template(
     stop_words=["</s>"],
     replace_eos=True,
 )
+
+_register_template(
+    name="ministra",
+    format_user=StringFormatter(slots=["<s>user\n{{content}}</s>\n<s>assistant\n"]),
+    format_system=StringFormatter(slots=["<s>system\n{{content}}</s>\n"]),
+    format_separator=EmptyFormatter(slots=["\n"]),
+    stop_words=["</s>"],
+    replace_eos=True,
+)

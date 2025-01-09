@@ -74,7 +74,8 @@ def get_ga_model(config: str):
             base_model,
             adapter_name: str, 
             **kwargs):
-            super().__init__(config)
+            self.config = base_model.config
+            super().__init__(self.config)
             self.global_attn = nn.ModuleDict({}) # CustomAttention(config=config, layer_idx=0) # train
             self.global_mlp = nn.ModuleDict({}) # MLP(config)
             self.name = adapter_name
@@ -88,8 +89,8 @@ def get_ga_model(config: str):
             
         def update_layer(self, base_model, adapter_name):
 
-            self.global_attn[adapter_name] = CustomAttention(base_model.config)
-            self.global_mlp[adapter_name] = MLP(base_model.config)
+            self.global_attn[adapter_name] = CustomAttention(self.config)
+            self.global_mlp[adapter_name] = MLP(self.config)
             
             self.set_adapter(self.active_adapters)
             # initialize the adapter layer
@@ -139,7 +140,7 @@ def get_ga_model(config: str):
             with torch.no_grad():
                 all_layer_outputs = outputs.hidden_states[1:-1] # pop only embedding layer
                 all_layer_outputs = torch.stack(all_layer_outputs)
-                key_hidden_states = torch.mean(all_layer_outputs, dim=-2, dtype=torch.float32).to(dtype)
+                key_hidden_states = torch.mean(all_layer_outputs, dim=-2).to(dtype)
                 key_hidden_states = key_hidden_states.transpose(0, 1) # [batch_size, num_layers, hidden_size]
                 all_layer_outputs = all_layer_outputs.transpose(0, 1) # [batch_size, num_layers, seq_len, hidden_size]
                 residual = all_layer_outputs
@@ -160,7 +161,7 @@ def get_ga_model(config: str):
             
             attn_output = attn_output + residual
             hidden_states = attn_output.transpose(0, 1) # [num_layers, batch_size, seq_len, hidden_size]
-            hidden_states = torch.mean(hidden_states, dim=0, dtype=torch.float32).to(dtype)
+            hidden_states = torch.mean(hidden_states, dim=0).to(dtype)
             outputs.last_hidden_state = (outputs.last_hidden_state + hidden_states) / 2
             return outputs
 

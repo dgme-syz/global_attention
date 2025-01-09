@@ -1,14 +1,15 @@
 @echo off
 
-set MODEL_ID="E:\pretrained_models\AI-ModelScope\TinyLlama-1___1B-Chat-v1___0"
+set MODEL_ID="E:\pretrained_models\LLM-Research\Llama-3___2-1B-Instruct"
 set DATASET_ID="mathinstruct"
-set OUTPUT_DIR="./saves/llama"
-set TEMPLATE="tinyllama"
+set OUTPUT_DIR="./saves/tmp"
+set TEMPLATE="llama3"
 set FINETUNING="ga"
 
 llamafactory-cli train ^
     --stage sft ^
     --do_train ^
+    --target 4 ^
     --label_names "labels" ^
     --model_name_or_path %MODEL_ID% ^
     --dataset %DATASET_ID% ^

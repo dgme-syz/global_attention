@@ -22,5 +22,14 @@ from peft.utils import PeftType
 
 @dataclass
 class GAConfig(PeftConfig):
+    target: Optional[Union[int, str]] = field(
+        default=None,
+        metadata={
+            "help": (
+                "'all' for use all the layer attention."
+                "int for use the last layers."
+            )
+        }
+    )
     def __post_init__(self):
         self.peft_type = PeftType.GA

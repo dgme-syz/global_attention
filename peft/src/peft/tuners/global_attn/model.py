@@ -94,7 +94,7 @@ class GAPEFTModel(BaseTuner):
     def _create_new_module(ga_config, adapter_name, target, **kwargs):
         #[TODO] ga_config is in fact useless
         new_module = get_ga_model(target.config)(
-            target.config, base_model=target, adapter_name=adapter_name, **kwargs
+            ga_config, base_model=target, adapter_name=adapter_name, **kwargs
         )
         GAPEFTModel.class_type = new_module.__class__
         return new_module

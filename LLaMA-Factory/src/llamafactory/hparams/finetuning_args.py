@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 
 @dataclass
@@ -331,10 +331,21 @@ class SwanLabArguments:
         metadata={"help": "The API key for SwanLab."},
     )
 
+@dataclass
+class GaArguments:
+    target: Optional[Union[int, str]] = field(
+        default=None,
+        metadata={
+            "help": (
+                "'all' for use all the layer attention."
+                "int for use the last layers."
+            )
+        }
+    )
 
 @dataclass
 class FinetuningArguments(
-    FreezeArguments, LoraArguments, RLHFArguments, GaloreArguments, BAdamArgument, SwanLabArguments
+    FreezeArguments, LoraArguments, RLHFArguments, GaloreArguments, BAdamArgument, SwanLabArguments, GaArguments
 ):
     r"""
     Arguments pertaining to which techniques we are going to fine-tuning with.

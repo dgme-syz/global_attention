@@ -279,6 +279,7 @@ def _setup_ga_tuning(
         config = GAConfig(
             TaskType.CAUSAL_LM,
             inference_mode=False,
+            target=finetuning_args.target,
         )
         model = get_peft_model(model, config, autocast_adapter_dtype=cast_trainable_params_to_fp32)
         torch.cuda.empty_cache()

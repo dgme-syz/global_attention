@@ -2,6 +2,31 @@
 
 > **A Bad Try**
 
+**环境安装**
+
+安装 `peft` (必须按这种方式)
+
+```bash
+cd ./peft
+pip install -e .
+```
+
+安装 `LLaMA-Factory`
+
+```bash
+cd ./LLaMA-Factory
+pip install -e .
+```
+
+安装 `lm-eval`
+
+```bash
+cd ./lm-evaluation-harness
+pip install -e .
+```
+
+
+
 > [!IMPORTANT]
 > 我们的仓库使用 [LLaMA Factory](https://github.com/hiyouga/LLaMA-Factory) 提供的微调支持，并且支持该实验提出的 `GA` 方法；使用 [peft](https://github.com/huggingface/peft) 提供的 `adapter` 并且制作了 `GA` adapter 从而能够在 LLMs 上添加我们所需要的模块 (📢 现在已经存在更方便的方案，可以参考:[BenjaminBossan/peft](https://github.com/BenjaminBossan/peft/tree/refactor-peft-method-registration))；最后，使用 [lm-eval](https://github.com/EleutherAI/lm-evaluation-harness) 完成新训练模型的评测
 
